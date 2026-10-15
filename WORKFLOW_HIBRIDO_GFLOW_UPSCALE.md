@@ -145,15 +145,35 @@ Igual que en la guía anterior (CapCut u otro). Monta con los clips reescalados.
 
 ---
 
-## 5. Decisión clave: ¿hay GPU en el host?
+## 5. Hardware y plan confirmados
 
-No sé qué hardware tiene el servidor. De eso depende toda la etapa 4:
+Host: **NVIDIA RTX con 8 GB de VRAM**, Intel i5 de 12.ª generación, Ubuntu Server 24.04 sin pantalla. Plan de Flow: **Pro**. Agente: **OpenClaw** (agente de IA, similar a hermes-agent).
 
-| Situación | Plan |
+Consecuencias:
+
+| Dato | Efecto en el diseño |
 |---|---|
-| **GPU NVIDIA con 8 GB+** | ComfyUI + Remacri en local, como el repo (el autor lo hizo con 8 GB, a ritmo lento) |
-| **GPU AMD/Intel con Vulkan** | `realesrgan-ncnn-vulkan` en lugar de ComfyUI (más simple, sin dependencias de CUDA) |
-| **Sin GPU** | No uses ComfyUI para vídeo: demasiado lento. Usa el reescalado nativo de Flow (`video upscale --scale 1080p`) o `ffmpeg -vf scale=...:flags=lanczos` y asume 1080p |
+| RTX 8 GB | Es la misma clase de GPU con la que el autor de `4k-ai-video-workflows` hizo sus workflows (RTX 4060 de 8 GB). El reescalado ESRGAN (Remacri) de clips de Veo es viable en local. La generación con WAN no nos interesa: para eso está Flow. |
+| Plan Pro | `gflow image upscale --scale 4k` **no está disponible** (solo Ultra; falla con código 22). Para imágenes: 2K gratis de Flow, y 4K con UltimateSDUpscale en local. |
+| i5 12.ª gen | Sobra para ffmpeg, conformado de clips y orquestación. No lo uses para reescalar (cuello de botella). |
+| Servidor sin pantalla | Xvfb para Chrome de gflow + VNC solo para el login (sección 3). El driver NVIDIA en Ubuntu 24.04 se instala con `ubuntu-drivers`; compruébalo con `nvidia-smi`. |
+
+Reglas para 8 GB de VRAM (del propio repo y de la lógica del modelo, sin medir):
+
+1. Procesa **un clip cada vez** y reinicia ComfyUI si los resultados salen corruptos.
+2. Reescala **clips de 720p**, no de 1080p. Remacri es ×4: un fotograma 720p ya llega a 2880p, así que ni hace falta ni cabe más resolución.
+3. Si hay error de memoria, el repo menciona el decodificador VAE por teselas; para el reescalado puro (sin VAE) normalmente no hace falta, pero el nodo `ImageUpscaleWithModel` procesa por lote: baja el lote o trocea el clip en segmentos cortos.
+4. No ejecutes a la vez gflow/Chrome y ComfyUI con cargas pesadas: Chrome también consume RAM del sistema.
+5. Mide el tiempo con **un clip de prueba** antes de planificar volumen. No tengo cifras de rendimiento para Remacri sobre Veo en esta GPU.
+
+### OpenClaw como orquestador
+
+OpenClaw es un agente de IA. No tengo documentación suya, así que esto es la integración mínima segura, no una descripción de OpenClaw:
+
+- **Opción A (recomendada):** que OpenClaw ejecute comandos de shell con una lista corta y fija: `gflow credits user`, `gflow image t2i`, `gflow video i2v`, `gflow image upscale`, y un script local `upscale_clip.sh`. Así controlas qué puede gastar.
+- **Opción B:** si OpenClaw soporta MCP, apuntarlo a `gflow mcp run`. Da más autonomía, pero el agente podría gastar créditos de vídeo sin tu aprobación.
+- **Límite de seguridad en ambos casos:** el agente no debe poder lanzar `video` sin un presupuesto. Pon un script envoltorio que lea `gflow credits user`, rechace si el saldo baja de un umbral y limite la cantidad por orden a 1.
+- OpenClaw no debe tocar el navegador de gflow ni el perfil `GFLOW_CLI_HOME`. Si OpenClaw tiene su propio navegador, que sea otro perfil y otra sesión.
 
 ---
 
